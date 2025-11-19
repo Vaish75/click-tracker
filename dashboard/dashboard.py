@@ -6,21 +6,25 @@ import time
 import firebase_admin
 from firebase_admin import credentials, db
 
-st.set_page_config(page_title="Live Click Dashboard", layout="wide")
+# -------------------------
+# Page config
+# -------------------------
+st.set_page_config(
+    page_title="Live Click Dashboard",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 st.title("📊 Real-Time Click Tracker")
+st.markdown("Track user clicks live with interactive charts and KPIs!")
 
 # -------------------------
-# Firebase Admin init using Streamlit Secrets
+# Firebase init using Streamlit Secrets
 # -------------------------
 def init_firebase():
     if not firebase_admin._apps:
         sa_json = dict(st.secrets["firebase_service_account"])
-
-        # Fix private key formatting
-        sa_json["private_key"] = sa_json["private_key"].replace("\\n", "\n")
-
         cred = credentials.Certificate(sa_json)
-
         firebase_admin.initialize_app(
             cred,
             {
@@ -32,54 +36,36 @@ init_firebase()
 ref = db.reference("demo_clicks")
 
 # -------------------------
-# Helper to read data
+# Fetch data
 # -------------------------
 @st.cache_data(ttl=5)
 def fetch_clicks():
     data = ref.get()
     if not data:
         return pd.DataFrame(columns=["user", "timestamp"])
-
-    rows = []
-    for k, v in data.items():
-        if isinstance(v, dict):
-            rows.append({
-                "user": v.get("user"),
-                "timestamp": v.get("timestamp")
-            })
-
+    rows = [{"user": v.get("user"), "timestamp": v.get("timestamp")}
+            for k, v in data.items() if isinstance(v, dict)]
     df = pd.DataFrame(rows)
-
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
         df = df.sort_values("timestamp")
-
     return df
 
+df = fetch_clicks()
+
 # -------------------------
-# UI
+# Sidebar controls
 # -------------------------
 refresh_seconds = st.sidebar.slider(
-    "Auto-refresh every (sec)", min_value=2, max_value=30, value=3
+    "Auto-refresh every (sec)", min_value=2, max_value=30, value=5
 )
 
-col1, col2 = st.columns([1, 3])
+pause = st.sidebar.checkbox("Pause auto-refresh", value=False)
 
-with col1:
-    if st.button("Refresh now"):
-        st.cache_data.clear()
-        st.experimental_rerun()
-
-    pause = st.checkbox("Pause auto-refresh", value=False)
-
-with col2:
-    st.markdown("Auto refresh keeps dashboard near real-time. Use 'Pause' to stop.")
-
-# Auto-refresh
+# Auto-refresh mechanism
 if not pause:
     last = st.session_state.get("last_update", None)
     now = time.time()
-
     if last is None or (now - last) > refresh_seconds:
         st.session_state["last_update"] = now
         st.cache_data.clear()
@@ -87,30 +73,68 @@ if not pause:
         st.experimental_rerun()
 
 # -------------------------
-# Display Data
+# Dashboard layout
 # -------------------------
-df = fetch_clicks()
-
 if df.empty:
     st.warning("No clicks yet. Open the click page and press the button.")
 else:
     df["Total_Clicks"] = range(1, len(df) + 1)
 
-    fig = px.line(
-        df,
+    # KPI Metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Clicks", len(df))
+    with col2:
+        st.metric("Unique Users", df["user"].nunique())
+    with col3:
+        top_user_clicks = df["user"].value_counts().max()
+        st.metric("Top User Clicks", top_user_clicks)
+
+    st.markdown("---")
+
+    # Filters
+    users = df["user"].unique()
+    selected_user = st.selectbox("Filter by User", options=["All Users"] + list(users))
+
+    if selected_user != "All Users":
+        df_filtered = df[df["user"] == selected_user]
+    else:
+        df_filtered = df.copy()
+
+    # Charts
+    # 1. Growing Click Count Over Time
+    fig_line = px.line(
+        df_filtered,
         x="timestamp",
         y="Total_Clicks",
-        title="Growing Click Count Over Time",
-        markers=True
+        title=f"Clicks Over Time ({selected_user})",
+        markers=True,
+        template="plotly_dark"
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_line, use_container_width=True)
 
+    # 2. Top Users Bar Chart
     user_counts = df["user"].value_counts().reset_index()
     user_counts.columns = ["User", "Clicks"]
+    top_users = user_counts.head(10)
+    top_users = top_users.sort_values("Clicks", ascending=True)
 
-    st.subheader("Top Users")
-    st.dataframe(user_counts.head(20))
+    fig_bar = px.bar(
+        top_users,
+        x="Clicks",
+        y="User",
+        orientation="h",
+        text="Clicks",
+        title="Top 10 Users by Click Count",
+        template="plotly_dark",
+        color="Clicks",
+        color_continuous_scale=px.colors.sequential.Plasma
+    )
+    fig_bar.update_traces(marker_line_color='black', marker_line_width=1.5, opacity=0.9, textposition='outside')
+    st.plotly_chart(fig_bar, use_container_width=True)
 
-    st.metric("Total Clicks", len(df))
+    # Optional: show full user leaderboard
+    st.subheader("Full User Leaderboard")
+    st.dataframe(user_counts)
 
-st.caption(f"Dashboard updated every {refresh_seconds} seconds (approx).")
+st.caption(f"Dashboard updates approximately every {refresh_seconds} seconds.")
