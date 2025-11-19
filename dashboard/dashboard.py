@@ -16,6 +16,9 @@ def init_firebase():
     if not firebase_admin._apps:
         sa_json = dict(st.secrets["firebase_service_account"])
 
+        # Fix private key formatting
+        sa_json["private_key"] = sa_json["private_key"].replace("\\n", "\n")
+
         cred = credentials.Certificate(sa_json)
 
         firebase_admin.initialize_app(
