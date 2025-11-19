@@ -27,9 +27,7 @@ def init_firebase():
         cred = credentials.Certificate(sa_json)
         firebase_admin.initialize_app(
             cred,
-            {
-                "databaseURL": st.secrets["firebase_service_account"]["firebase_database_url"]
-            }
+            {"databaseURL": st.secrets["firebase_service_account"]["firebase_database_url"]}
         )
 
 init_firebase()
@@ -43,12 +41,18 @@ def fetch_clicks():
     data = ref.get()
     if not data:
         return pd.DataFrame(columns=["user", "timestamp"])
-    rows = [{"user": v.get("user"), "timestamp": v.get("timestamp")}
-            for k, v in data.items() if isinstance(v, dict)]
+
+    rows = [
+        {"user": v.get("user"), "timestamp": v.get("timestamp")}
+        for _, v in data.items() if isinstance(v, dict)
+    ]
+
     df = pd.DataFrame(rows)
+
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
         df = df.sort_values("timestamp")
+
     return df
 
 df = fetch_clicks()
@@ -62,15 +66,16 @@ refresh_seconds = st.sidebar.slider(
 
 pause = st.sidebar.checkbox("Pause auto-refresh", value=False)
 
-# Auto-refresh mechanism
+# Auto-refresh mechanism (new Streamlit API)
 if not pause:
     last = st.session_state.get("last_update", None)
     now = time.time()
+
     if last is None or (now - last) > refresh_seconds:
         st.session_state["last_update"] = now
         st.cache_data.clear()
-        time.sleep(0.2)
-        st.experimental_rerun()
+        time.sleep(0.1)
+        st.rerun()    # <--- UPDATED FIX
 
 # -------------------------
 # Dashboard layout
@@ -86,22 +91,9 @@ else:
 
     # KPI Metrics
     col1, col2, col3 = st.columns(3)
-    total_placeholder = col1.empty()
-    users_placeholder = col2.empty()
-    top_placeholder = col3.empty()
-
-    if pause:
-        # Animated counters (safe: no rerun while animating)
-        for i in range(total_clicks + 1):
-            total_placeholder.metric("Total Clicks", i)
-            users_placeholder.metric("Unique Users", unique_users)
-            top_placeholder.metric("Top User Clicks", top_user_clicks)
-            time.sleep(0.01)
-    else:
-        # Show instant metrics during auto-refresh
-        total_placeholder.metric("Total Clicks", total_clicks)
-        users_placeholder.metric("Unique Users", unique_users)
-        top_placeholder.metric("Top User Clicks", top_user_clicks)
+    col1.metric("Total Clicks", total_clicks)
+    col2.metric("Unique Users", unique_users)
+    col3.metric("Top User Clicks", top_user_clicks)
 
     st.markdown("---")
 
@@ -114,8 +106,9 @@ else:
     else:
         df_filtered = df.copy()
 
-    # Charts
-    # 1. Growing Click Count Over Time
+    # -------------------------
+    # Line Chart
+    # -------------------------
     fig_line = px.line(
         df_filtered,
         x="timestamp",
@@ -126,11 +119,12 @@ else:
     )
     st.plotly_chart(fig_line, use_container_width=True)
 
-    # 2. Top Users Bar Chart
+    # -------------------------
+    # Top Users Bar Chart
+    # -------------------------
     user_counts = df["user"].value_counts().reset_index()
     user_counts.columns = ["User", "Clicks"]
-    top_users = user_counts.head(10)
-    top_users = top_users.sort_values("Clicks", ascending=True)
+    top_users = user_counts.head(10).sort_values("Clicks", ascending=True)
 
     fig_bar = px.bar(
         top_users,
@@ -143,10 +137,10 @@ else:
         color="Clicks",
         color_continuous_scale=px.colors.sequential.Plasma
     )
-    fig_bar.update_traces(marker_line_color='black', marker_line_width=1.5, opacity=0.9, textposition='outside')
+    fig_bar.update_traces(marker_line_color="black", marker_line_width=1.5, opacity=0.9)
     st.plotly_chart(fig_bar, use_container_width=True)
 
-    # Optional: show full user leaderboard
+    # Full Leaderboard
     st.subheader("Full User Leaderboard")
     st.dataframe(user_counts)
 
