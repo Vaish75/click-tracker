@@ -27,7 +27,9 @@ def init_firebase():
         cred = credentials.Certificate(sa_json)
         firebase_admin.initialize_app(
             cred,
-            {"databaseURL": st.secrets["firebase_service_account"]["firebase_database_url"]}
+            {
+                "databaseURL": st.secrets["firebase_service_account"]["firebase_database_url"]
+            }
         )
 
 init_firebase()
@@ -78,26 +80,25 @@ if df.empty:
 else:
     df["Total_Clicks"] = range(1, len(df) + 1)
 
-    # KPI Metrics with animated counter
     total_clicks = len(df)
     unique_users = df["user"].nunique()
     top_user_clicks = df["user"].value_counts().max()
 
+    # KPI Metrics
     col1, col2, col3 = st.columns(3)
-    
-    # Animated counters placeholders
     total_placeholder = col1.empty()
     users_placeholder = col2.empty()
     top_placeholder = col3.empty()
 
-    # Animate only if not paused
-    if not pause:
+    if pause:
+        # Animated counters (safe: no rerun while animating)
         for i in range(total_clicks + 1):
             total_placeholder.metric("Total Clicks", i)
-            time.sleep(0.01)  # fast enough, smooth animation
-        users_placeholder.metric("Unique Users", unique_users)
-        top_placeholder.metric("Top User Clicks", top_user_clicks)
+            users_placeholder.metric("Unique Users", unique_users)
+            top_placeholder.metric("Top User Clicks", top_user_clicks)
+            time.sleep(0.01)
     else:
+        # Show instant metrics during auto-refresh
         total_placeholder.metric("Total Clicks", total_clicks)
         users_placeholder.metric("Unique Users", unique_users)
         top_placeholder.metric("Top User Clicks", top_user_clicks)
